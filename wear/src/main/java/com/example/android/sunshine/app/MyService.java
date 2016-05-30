@@ -19,10 +19,10 @@ public class MyService extends WearableListenerService {
                 DataMap dataMap = DataMapItem.fromDataItem(dataEvent.getDataItem()).getDataMap();
                 String path = dataEvent.getDataItem().getUri().getPath();
                 if (path.equals("/temperature-data")) {
-                    float highTemp;
-                    highTemp = dataMap.getFloat("high_temp");
-                    float lowTemp;
-                    lowTemp = dataMap.getFloat("low_temp");
+                    String highTemp;
+                    highTemp = dataMap.getString("high_temp");
+                    String lowTemp;
+                    lowTemp = dataMap.getString("low_temp");
                     Asset asset = dataMap.getAsset("weather_image");
 
                     Intent intent = new Intent("com.sheajohn.wear.DATA_UPDATED");
@@ -32,7 +32,6 @@ public class MyService extends WearableListenerService {
 
                     sendBroadcast(intent);
                 }
-
             }
         }
     }

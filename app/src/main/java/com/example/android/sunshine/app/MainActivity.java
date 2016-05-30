@@ -17,6 +17,7 @@ package com.example.android.sunshine.app;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
@@ -44,13 +45,19 @@ import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.wearable.Asset;
 import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.DataEvent;
+import com.google.android.gms.wearable.DataEventBuffer;
+import com.google.android.gms.wearable.DataMap;
+import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
 import java.io.ByteArrayOutputStream;
 
-public class MainActivity extends AppCompatActivity implements ForecastFragment.Callback, GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
+public class MainActivity extends AppCompatActivity implements ForecastFragment.Callback,
+        GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener,
+        DataApi.DataListener {
 
     private final String LOG_TAG = MainActivity.class.getSimpleName();
     private static final String DETAILFRAGMENT_TAG = "DFTAG";
@@ -65,7 +72,7 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
 
     @Override
     public void onConnected(@Nullable Bundle bundle) {
-
+        Wearable.DataApi.addListener(mGoogleApiClient, this);
     }
 
     @Override
@@ -78,13 +85,46 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
 
     }
 
-    private static Asset createAssetFromBitmap(Bitmap bitmap) {
-        final ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
-        bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream);
-        return Asset.createFromBytes(byteStream.toByteArray());
+    @Override
+    public void onDataChanged(DataEventBuffer dataEventBuffer) {
+        for(DataEvent dataEvent : dataEventBuffer) {
+            if (dataEvent.getType() == DataEvent.TYPE_CHANGED) {
+                DataMap dataMap = DataMapItem.fromDataItem(dataEvent.getDataItem()).getDataMap();
+                String path = dataEvent.getDataItem().getUri().getPath();
+                if (path.equals("/update")) {
+                    // Send updated weather to watch
+                    final String[] NOTIFY_WEATHER_PROJECTION = new String[] {
+                            WeatherContract.WeatherEntry.COLUMN_WEATHER_ID,
+                            WeatherContract.WeatherEntry.COLUMN_MAX_TEMP,
+                            WeatherContract.WeatherEntry.COLUMN_MIN_TEMP
+                    };
+
+                    // these indices must match the projection
+                    final int INDEX_WEATHER_ID = 0;
+                    final int INDEX_MAX_TEMP = 1;
+                    final int INDEX_MIN_TEMP = 2;
+
+                    String locationQuery = Utility.getPreferredLocation(getApplication());
+                    Uri weatherUri = WeatherContract.WeatherEntry.buildWeatherLocationWithDate(locationQuery, System.currentTimeMillis());
+
+                    // we'll query our contentProvider, as always
+                    Cursor cursor = getApplicationContext().getContentResolver().query(weatherUri, NOTIFY_WEATHER_PROJECTION, null, null, null);
+
+                    if (cursor.moveToFirst()) {
+                        int weatherId = cursor.getInt(INDEX_WEATHER_ID);
+                        double high = cursor.getDouble(INDEX_MAX_TEMP);
+                        double low = cursor.getDouble(INDEX_MIN_TEMP);
+
+                        int iconId = Utility.getIconResourceForWeatherCondition(weatherId);
+
+                        sendUpdatesToWatchFace(Utility.formatTemperature(getApplicationContext(), low), Utility.formatTemperature(getApplicationContext(), high), iconId);
+                    }
+                }
+            }
+        }
     }
 
-    public void sendHighTemp(float highTemp) {
+    public void sendUpdatesToWatchFace(String lowTemp, String highTemp, int iconId) {
         PutDataMapRequest putDataMapRequest = PutDataMapRequest.create("/temperature-data");
 
         putDataMapRequest.getDataMap().putLong("time", System.currentTimeMillis());
@@ -92,12 +132,10 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
         Time t = new Time();
         t.setToNow();
 
-//        putDataMapRequest.getDataMap().putFloat("high_temp", highTemp);
-//        putDataMapRequest.getDataMap().putFloat("low_temp", highTemp * 0.50f);
-        putDataMapRequest.getDataMap().putFloat("high_temp", t.minute);
-        putDataMapRequest.getDataMap().putFloat("low_temp", t.second);
+        putDataMapRequest.getDataMap().putString("high_temp", highTemp);
+        putDataMapRequest.getDataMap().putString("low_temp", lowTemp);
 
-        Bitmap bitmap = BitmapFactory.decodeResource(getResources(), R.drawable.art_clear);
+        Bitmap bitmap = BitmapFactory.decodeResource(getApplicationContext().getResources(), iconId);
         Asset asset = createAssetFromBitmap(bitmap);
         putDataMapRequest.getDataMap().putAsset("weather_image", asset);
 
@@ -109,14 +147,21 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
                     @Override
                     public void onResult(@NonNull DataApi.DataItemResult dataItemResult) {
                         if (!dataItemResult.getStatus().isSuccess()) {
-                            Log.e("WEAR", "Failed to send high temp");
+                            Log.e(LOG_TAG, "Failed to send data to wear");
                         } else {
-                            Log.e("WEAR", "Sent high temp");
+                            Log.e(LOG_TAG, "Sent data to wear");
                         }
                     }
                 });
 
     }
+
+    private static Asset createAssetFromBitmap(Bitmap bitmap) {
+        final ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream);
+        return Asset.createFromBytes(byteStream.toByteArray());
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -203,9 +248,8 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
 
         //noinspection SimplifiableIfStatement
         if (id == R.id.action_settings) {
-            sendHighTemp(72.0f);
-//            startActivity(new Intent(this, SettingsActivity.class));
-//            return true;
+            startActivity(new Intent(this, SettingsActivity.class));
+            return true;
         }
 
         return super.onOptionsItemSelected(item);

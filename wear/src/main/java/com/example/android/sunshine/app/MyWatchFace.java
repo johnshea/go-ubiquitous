@@ -43,13 +43,16 @@ import android.view.WindowInsets;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.wearable.Asset;
+import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.text.SimpleDateFormat;
-import java.util.Calendar;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
@@ -58,6 +61,9 @@ import java.util.concurrent.TimeUnit;
  * low-bit ambient mode, the text is drawn without anti-aliasing in ambient mode.
  */
 public class MyWatchFace extends CanvasWatchFaceService implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
+
+    private final String LOG_TAG = MyWatchFace.class.getSimpleName();
+
     private static final Typeface NORMAL_TYPEFACE =
             Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
 
@@ -73,10 +79,11 @@ public class MyWatchFace extends CanvasWatchFaceService implements GoogleApiClie
     private static final int MSG_UPDATE_TIME = 0;
 
     private GoogleApiClient mGoogleApiClient;
+    private Boolean mHasRequestedInitialData = false;
 
     @Override
     public void onConnected(@Nullable Bundle bundle) {
-
+        getInitialData();
     }
 
     @Override
@@ -98,6 +105,39 @@ public class MyWatchFace extends CanvasWatchFaceService implements GoogleApiClie
                 .addConnectionCallbacks(this)
                 .addOnConnectionFailedListener(this)
                 .build();
+        mGoogleApiClient.connect();
+    }
+
+    private void getInitialData() {
+
+        if (mHasRequestedInitialData) {
+            return;
+        }
+
+        if (!mGoogleApiClient.isConnected()) {
+            mGoogleApiClient.connect();
+            return;
+        }
+
+        mHasRequestedInitialData = true;
+
+        PutDataMapRequest putDataMapRequest = PutDataMapRequest.create("/update");
+        putDataMapRequest.getDataMap().putLong("time", System.currentTimeMillis());
+        putDataMapRequest.getDataMap().putString("trigger_update", "true");
+        PutDataRequest putDataRequest = putDataMapRequest.asPutDataRequest();
+        putDataRequest.setUrgent();
+
+        Wearable.DataApi.putDataItem(mGoogleApiClient, putDataRequest)
+                .setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+                    @Override
+                    public void onResult(@NonNull DataApi.DataItemResult dataItemResult) {
+                        if (!dataItemResult.getStatus().isSuccess()) {
+                            Log.e(LOG_TAG, "Failed requesting app to send initial data");
+                        } else {
+                            Log.e(LOG_TAG, "Sent app request for initial data");
+                        }
+                    }
+                });
     }
 
     @Override
@@ -142,10 +182,9 @@ public class MyWatchFace extends CanvasWatchFaceService implements GoogleApiClie
         boolean mAmbient;
         Time mTime;
 
-        float mLowTemp;
-        float mHighTemp;
+        String mLowTemp;
+        String mHighTemp;
         Bitmap mWeatherImage;
-        Calendar mCalendar;
 
         final BroadcastReceiver mTimeZoneReceiver = new BroadcastReceiver() {
             @Override
@@ -158,16 +197,15 @@ public class MyWatchFace extends CanvasWatchFaceService implements GoogleApiClie
         final BroadcastReceiver mDataReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-//                mTime.clear(intent.getStringExtra("temp"));
-//                mTime.setToNow();
-                mLowTemp = intent.getFloatExtra("low-temp", -1);
-                mHighTemp = intent.getFloatExtra("high-temp", -2);
+                mLowTemp = intent.getStringExtra("low-temp");
+                mHighTemp = intent.getStringExtra("high-temp");
 
                 Asset asset = intent.getParcelableExtra("weather-image");
 
-                LoadImageAsyncTask loadImageAsyncTask = new LoadImageAsyncTask();
-                loadImageAsyncTask.execute(asset);
-//                mWeatherImage = loadBitmapFromAsset(asset);
+                if (asset != null) {
+                    LoadImageAsyncTask loadImageAsyncTask = new LoadImageAsyncTask();
+                    loadImageAsyncTask.execute(asset);
+                }
             }
 
             class LoadImageAsyncTask extends AsyncTask<Asset, Void, Bitmap> {
@@ -241,7 +279,6 @@ public class MyWatchFace extends CanvasWatchFaceService implements GoogleApiClie
             mBackgroundPaint = new Paint();
             mBackgroundPaint.setColor(resources.getColor(com.example.android.sunshine.app.R.color.background));
 
-            // TODO
             mBackgroundPaintAmbient = new Paint();
             mBackgroundPaintAmbient.setColor(resources.getColor(R.color.background));
 
@@ -443,12 +480,10 @@ public class MyWatchFace extends CanvasWatchFaceService implements GoogleApiClie
                 canvas.drawText(date, (int)(canvas.getWidth() * 0.50f), (int)(canvas.getHeight() * 0.50f), mDatePaint);
 
                 // Draw low and high temp
-                if (mLowTemp != 0 && mHighTemp != 0) {
+                if (mLowTemp != null && mHighTemp != null) {
 
-                    String suffix = "\u00B0";
-
-                    String lowTemp = String.valueOf((int)mLowTemp) + suffix;
-                    String highTemp = String.valueOf((int) mHighTemp) + suffix;
+                    String lowTemp = mLowTemp;
+                    String highTemp = mHighTemp;
 
                     mTemperaturePaintHigh.setTextAlign(Paint.Align.CENTER);
                     canvas.drawText(highTemp, (int) (canvas.getWidth() * 0.50f), canvas.getHeight() * 0.75f, mTemperaturePaintHigh);
