@@ -470,7 +470,7 @@ public class MyWatchFace extends CanvasWatchFaceService implements GoogleApiClie
                     ? String.format("%d:%02d", mTime.hour, mTime.minute)
                     : String.format("%d:%02d:%02d", mTime.hour, mTime.minute, mTime.second);
             mTextPaint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText(text, (int)(canvas.getWidth() * 0.50f), mYOffset, mTextPaint);
+            canvas.drawText(text, (int)(canvas.getWidth() * 0.50f),  (int)(canvas.getHeight() * 0.40f), mTextPaint);
 
             if (!mAmbient) {
 
