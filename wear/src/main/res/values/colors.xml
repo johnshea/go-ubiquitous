@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="background">#000000</color>
+    <color name="background2">#000088</color>
+    <color name="udacity_blue">#1CA8F4</color>
+    <color name="udacity_light_blue">#BBE5FB</color>
+    <color name="udacity_white">#FFFFFF</color>
+    <color name="digital_text">#ffffff</color>
+</resources>

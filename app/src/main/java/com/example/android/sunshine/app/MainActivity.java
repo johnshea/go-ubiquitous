@@ -17,14 +17,19 @@ package com.example.android.sunshine.app;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.ActivityOptionsCompat;
 import android.support.v4.util.Pair;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
+import android.text.format.Time;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -35,8 +40,17 @@ import com.example.android.sunshine.app.gcm.RegistrationIntentService;
 import com.example.android.sunshine.app.sync.SunshineSyncAdapter;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.wearable.Asset;
+import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
+import com.google.android.gms.wearable.Wearable;
 
-public class MainActivity extends AppCompatActivity implements ForecastFragment.Callback {
+import java.io.ByteArrayOutputStream;
+
+public class MainActivity extends AppCompatActivity implements ForecastFragment.Callback, GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
 
     private final String LOG_TAG = MainActivity.class.getSimpleName();
     private static final String DETAILFRAGMENT_TAG = "DFTAG";
@@ -46,6 +60,63 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
     private boolean mTwoPane;
     private String mLocation;
 
+    private GoogleApiClient mGoogleApiClient;
+    private boolean mResolvingError = false;
+
+    @Override
+    public void onConnected(@Nullable Bundle bundle) {
+
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    @Override
+    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+
+    }
+
+    private static Asset createAssetFromBitmap(Bitmap bitmap) {
+        final ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream);
+        return Asset.createFromBytes(byteStream.toByteArray());
+    }
+
+    public void sendHighTemp(float highTemp) {
+        PutDataMapRequest putDataMapRequest = PutDataMapRequest.create("/temperature-data");
+
+        putDataMapRequest.getDataMap().putLong("time", System.currentTimeMillis());
+
+        Time t = new Time();
+        t.setToNow();
+
+//        putDataMapRequest.getDataMap().putFloat("high_temp", highTemp);
+//        putDataMapRequest.getDataMap().putFloat("low_temp", highTemp * 0.50f);
+        putDataMapRequest.getDataMap().putFloat("high_temp", t.minute);
+        putDataMapRequest.getDataMap().putFloat("low_temp", t.second);
+
+        Bitmap bitmap = BitmapFactory.decodeResource(getResources(), R.drawable.art_clear);
+        Asset asset = createAssetFromBitmap(bitmap);
+        putDataMapRequest.getDataMap().putAsset("weather_image", asset);
+
+        PutDataRequest request = putDataMapRequest.asPutDataRequest();
+        request.setUrgent();
+
+        Wearable.DataApi.putDataItem(mGoogleApiClient, request)
+                .setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+                    @Override
+                    public void onResult(@NonNull DataApi.DataItemResult dataItemResult) {
+                        if (!dataItemResult.getStatus().isSuccess()) {
+                            Log.e("WEAR", "Failed to send high temp");
+                        } else {
+                            Log.e("WEAR", "Sent high temp");
+                        }
+                    }
+                });
+
+    }
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -107,6 +178,13 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
                 startService(intent);
             }
         }
+
+        mGoogleApiClient = new GoogleApiClient.Builder(this)
+                .addApi(Wearable.API)
+                .addConnectionCallbacks(this)
+                .addOnConnectionFailedListener(this)
+                .build();
+        mGoogleApiClient.connect();
     }
 
     @Override
@@ -125,8 +203,9 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
 
         //noinspection SimplifiableIfStatement
         if (id == R.id.action_settings) {
-            startActivity(new Intent(this, SettingsActivity.class));
-            return true;
+            sendHighTemp(72.0f);
+//            startActivity(new Intent(this, SettingsActivity.class));
+//            return true;
         }
 
         return super.onOptionsItemSelected(item);
