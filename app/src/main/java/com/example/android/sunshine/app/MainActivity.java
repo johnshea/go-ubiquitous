@@ -15,7 +15,10 @@
  */
 package com.example.android.sunshine.app;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.graphics.Bitmap;
@@ -45,10 +48,6 @@ import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.wearable.Asset;
 import com.google.android.gms.wearable.DataApi;
-import com.google.android.gms.wearable.DataEvent;
-import com.google.android.gms.wearable.DataEventBuffer;
-import com.google.android.gms.wearable.DataMap;
-import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
@@ -56,8 +55,7 @@ import com.google.android.gms.wearable.Wearable;
 import java.io.ByteArrayOutputStream;
 
 public class MainActivity extends AppCompatActivity implements ForecastFragment.Callback,
-        GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener,
-        DataApi.DataListener {
+        GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
 
     private final String LOG_TAG = MainActivity.class.getSimpleName();
     private static final String DETAILFRAGMENT_TAG = "DFTAG";
@@ -70,9 +68,100 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
     private GoogleApiClient mGoogleApiClient;
     private boolean mResolvingError = false;
 
+    boolean mRegisteredDataTriggerReceiver = false;
+    boolean mHasSentInitialDataUpdate = false;
+
+    final BroadcastReceiver mDataTriggerReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            // Send updated weather to watch
+            final String[] NOTIFY_WEATHER_PROJECTION = new String[] {
+                    WeatherContract.WeatherEntry.COLUMN_WEATHER_ID,
+                    WeatherContract.WeatherEntry.COLUMN_MAX_TEMP,
+                    WeatherContract.WeatherEntry.COLUMN_MIN_TEMP
+            };
+
+            // these indices must match the projection
+            final int INDEX_WEATHER_ID = 0;
+            final int INDEX_MAX_TEMP = 1;
+            final int INDEX_MIN_TEMP = 2;
+
+            String locationQuery = Utility.getPreferredLocation(getApplication());
+            Uri weatherUri = WeatherContract.WeatherEntry.buildWeatherLocationWithDate(locationQuery, System.currentTimeMillis());
+
+            // we'll query our contentProvider, as always
+            Cursor cursor = getApplicationContext().getContentResolver().query(weatherUri, NOTIFY_WEATHER_PROJECTION, null, null, null);
+
+            if (cursor.moveToFirst()) {
+                int weatherId = cursor.getInt(INDEX_WEATHER_ID);
+                double high = cursor.getDouble(INDEX_MAX_TEMP);
+                double low = cursor.getDouble(INDEX_MIN_TEMP);
+
+                int iconId = Utility.getIconResourceForWeatherCondition(weatherId);
+
+                sendUpdatesToWatchFace(Utility.formatTemperature(getApplicationContext(), low), Utility.formatTemperature(getApplicationContext(), high), iconId);
+            }
+        }
+    };
+
+    private void registerDataTriggerReceiver() {
+        if (mRegisteredDataTriggerReceiver) {
+            return;
+        }
+        mRegisteredDataTriggerReceiver = true;
+        IntentFilter filter = new IntentFilter("com.sheajohnh.wear.DATA_TRIGGER");
+        this.registerReceiver(mDataTriggerReceiver, filter);
+    }
+
+    private void unregisterDataTriggerReceiver() {
+        if (!mRegisteredDataTriggerReceiver) {
+            return;
+        }
+        mRegisteredDataTriggerReceiver = false;
+        this.unregisterReceiver(mDataTriggerReceiver);
+    }
+
     @Override
     public void onConnected(@Nullable Bundle bundle) {
-        Wearable.DataApi.addListener(mGoogleApiClient, this);
+        if (!mHasSentInitialDataUpdate) {
+            sendInitialData();
+        }
+    }
+
+    private void sendInitialData() {
+
+        mHasSentInitialDataUpdate = true;
+
+        int INDEX_WEATHER_ID = 0;
+        int INDEX_MAX_TEMP = 1;
+        int INDEX_MIN_TEMP = 2;
+        int INDEX_SHORT_DESC = 3;
+
+        final String[] NOTIFY_WEATHER_PROJECTION = new String[] {
+                WeatherContract.WeatherEntry.COLUMN_WEATHER_ID,
+                WeatherContract.WeatherEntry.COLUMN_MAX_TEMP,
+                WeatherContract.WeatherEntry.COLUMN_MIN_TEMP,
+                WeatherContract.WeatherEntry.COLUMN_SHORT_DESC
+        };
+
+        Context context = getApplicationContext();
+
+        // Send updated weather to wear
+        String locationQuery = Utility.getPreferredLocation(context);
+        Uri weatherUri = WeatherContract.WeatherEntry.buildWeatherLocationWithDate(locationQuery, System.currentTimeMillis());
+
+        // we'll query our contentProvider, as always
+        Cursor cursor = getApplicationContext().getContentResolver().query(weatherUri, NOTIFY_WEATHER_PROJECTION, null, null, null);
+
+        if (cursor.moveToFirst()) {
+            int weatherId = cursor.getInt(INDEX_WEATHER_ID);
+            double high = cursor.getDouble(INDEX_MAX_TEMP);
+            double low = cursor.getDouble(INDEX_MIN_TEMP);
+
+            int iconId = Utility.getIconResourceForWeatherCondition(weatherId);
+
+            sendUpdatesToWatchFace(Utility.formatTemperature(context, low), Utility.formatTemperature(context, high), iconId);
+        }
     }
 
     @Override
@@ -83,45 +172,6 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
     @Override
     public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
 
-    }
-
-    @Override
-    public void onDataChanged(DataEventBuffer dataEventBuffer) {
-        for(DataEvent dataEvent : dataEventBuffer) {
-            if (dataEvent.getType() == DataEvent.TYPE_CHANGED) {
-                DataMap dataMap = DataMapItem.fromDataItem(dataEvent.getDataItem()).getDataMap();
-                String path = dataEvent.getDataItem().getUri().getPath();
-                if (path.equals("/update")) {
-                    // Send updated weather to watch
-                    final String[] NOTIFY_WEATHER_PROJECTION = new String[] {
-                            WeatherContract.WeatherEntry.COLUMN_WEATHER_ID,
-                            WeatherContract.WeatherEntry.COLUMN_MAX_TEMP,
-                            WeatherContract.WeatherEntry.COLUMN_MIN_TEMP
-                    };
-
-                    // these indices must match the projection
-                    final int INDEX_WEATHER_ID = 0;
-                    final int INDEX_MAX_TEMP = 1;
-                    final int INDEX_MIN_TEMP = 2;
-
-                    String locationQuery = Utility.getPreferredLocation(getApplication());
-                    Uri weatherUri = WeatherContract.WeatherEntry.buildWeatherLocationWithDate(locationQuery, System.currentTimeMillis());
-
-                    // we'll query our contentProvider, as always
-                    Cursor cursor = getApplicationContext().getContentResolver().query(weatherUri, NOTIFY_WEATHER_PROJECTION, null, null, null);
-
-                    if (cursor.moveToFirst()) {
-                        int weatherId = cursor.getInt(INDEX_WEATHER_ID);
-                        double high = cursor.getDouble(INDEX_MAX_TEMP);
-                        double low = cursor.getDouble(INDEX_MIN_TEMP);
-
-                        int iconId = Utility.getIconResourceForWeatherCondition(weatherId);
-
-                        sendUpdatesToWatchFace(Utility.formatTemperature(getApplicationContext(), low), Utility.formatTemperature(getApplicationContext(), high), iconId);
-                    }
-                }
-            }
-        }
     }
 
     public void sendUpdatesToWatchFace(String lowTemp, String highTemp, int iconId) {
@@ -271,6 +321,13 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
             }
             mLocation = location;
         }
+        registerDataTriggerReceiver();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        unregisterDataTriggerReceiver();
     }
 
     @Override
