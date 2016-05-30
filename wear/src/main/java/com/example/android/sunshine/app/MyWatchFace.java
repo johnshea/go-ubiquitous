@@ -48,6 +48,7 @@ import com.google.android.gms.wearable.Wearable;
 
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
+import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
@@ -137,6 +138,7 @@ public class MyWatchFace extends CanvasWatchFaceService implements GoogleApiClie
         Paint mTextPaint;
         Paint mTemperaturePaintHigh;
         Paint mTemperaturePaintLow;
+        Paint mDatePaint;
         boolean mAmbient;
         Time mTime;
 
@@ -255,6 +257,9 @@ public class MyWatchFace extends CanvasWatchFaceService implements GoogleApiClie
             mTemperaturePaintLow = new Paint();
             mTemperaturePaintLow = createTemperaturePaint(resources.getColor(R.color.udacity_light_blue));
 
+            mDatePaint = new Paint();
+            mDatePaint = createDatePaint(resources.getColor(R.color.udacity_light_blue));
+
             mTime = new Time();
         }
 
@@ -277,7 +282,17 @@ public class MyWatchFace extends CanvasWatchFaceService implements GoogleApiClie
             paint.setColor(textColor);
             paint.setTypeface(NORMAL_TYPEFACE);
             paint.setAntiAlias(true);
-            paint.setTextSize(14.0f);
+            paint.setTextSize(40.0f);
+            return paint;
+        }
+
+        private Paint createDatePaint(int textColor) {
+            Paint paint = new Paint();
+            paint.setColor(textColor);
+            paint.setTypeface(NORMAL_TYPEFACE);
+            paint.setAntiAlias(true);
+            paint.setTextSize(20.0f);
+            paint.setTextAlign(Paint.Align.CENTER);
             return paint;
         }
 
@@ -417,30 +432,44 @@ public class MyWatchFace extends CanvasWatchFaceService implements GoogleApiClie
             String text = mAmbient
                     ? String.format("%d:%02d", mTime.hour, mTime.minute)
                     : String.format("%d:%02d:%02d", mTime.hour, mTime.minute, mTime.second);
-            canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+            mTextPaint.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText(text, (int)(canvas.getWidth() * 0.50f), mYOffset, mTextPaint);
 
-            // Draw low and high temp
-            String lowTemp = String.valueOf((int)mLowTemp);
-            String highTemp = String.valueOf((int) mHighTemp);
+            if (!mAmbient) {
 
-            canvas.drawText(highTemp, canvas.getWidth() * 0.25f, canvas.getHeight() * 0.75f, mTemperaturePaintHigh);
-            canvas.drawText(lowTemp, canvas.getWidth() * 0.75f, canvas.getHeight() * 0.75f, mTemperaturePaintLow);
+                SimpleDateFormat shortenedDateFormat = new SimpleDateFormat("EEE, MMM dd yyyy");
+                String date = shortenedDateFormat.format(System.currentTimeMillis());
+                date = date.toUpperCase();
+                canvas.drawText(date, (int)(canvas.getWidth() * 0.50f), (int)(canvas.getHeight() * 0.50f), mDatePaint);
 
-            int lineLength = (int)(canvas.getWidth() / 5);
-            int xLineStart = (int)(canvas.getWidth() * 0.40f);
-            int yLineStart = (int)(canvas.getHeight() / 2);
+                // Draw low and high temp
+                if (mLowTemp != 0 && mHighTemp != 0) {
 
-            canvas.drawLine(xLineStart, yLineStart, xLineStart + lineLength, yLineStart, mTemperaturePaintLow);
+                    String suffix = "\u00B0";
 
-            if (mWeatherImage != null) {
-                int left = (int)(canvas.getWidth() * 0.25f);
-                int top = (int)(canvas.getHeight() * 0.50f);
-                int right = left + (int)(canvas.getWidth() * 0.20f);
-                int bottom = top + (int)(canvas.getHeight() * 0.20f);
+                    String lowTemp = String.valueOf((int)mLowTemp) + suffix;
+                    String highTemp = String.valueOf((int) mHighTemp) + suffix;
 
-                Rect dst = new Rect(left, top, right, bottom);
+                    mTemperaturePaintHigh.setTextAlign(Paint.Align.CENTER);
+                    canvas.drawText(highTemp, (int) (canvas.getWidth() * 0.50f), canvas.getHeight() * 0.75f, mTemperaturePaintHigh);
 
-                canvas.drawBitmap(mWeatherImage, null, dst, mTextPaint);
+                    mTemperaturePaintLow.setTextAlign(Paint.Align.CENTER);
+                    canvas.drawText(lowTemp, (int) (canvas.getWidth() * 0.75f), canvas.getHeight() * 0.75f, mTemperaturePaintLow);
+                }
+
+                if (mWeatherImage != null) {
+
+                    int sideLength = (int)(canvas.getWidth() * 0.20f);
+
+                    int left = (int)(canvas.getWidth() * 0.25f) - (int)(sideLength / 2);
+                    int top = (int)(canvas.getHeight() * 0.60f);
+                    int right = left + sideLength;
+                    int bottom = top + sideLength;
+
+                    Rect dst = new Rect(left, top, right, bottom);
+
+                    canvas.drawBitmap(mWeatherImage, null, dst, mTextPaint);
+                }
             }
         }
 
